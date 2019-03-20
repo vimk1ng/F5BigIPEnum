@@ -1,7 +1,7 @@
 #!/usr/bin/python
 ################################
 #
-#  BigF5 Load Balancer Enumerator
+#  F5 BIG-IP Load Balancer Enumerator
 #  
 #  Authors: @vimk1ng
 #           @m1ndfl4y
@@ -16,27 +16,32 @@ repattern = re.compile('(BIGip.*?)=(\d+)\.(\d+)\.\d')
 
 def main():
 	requests.packages.urllib3.disable_warnings()
-	parser = argparse.ArgumentParser(description='Enumerate BigF5 Load Balancer')
+	parser = argparse.ArgumentParser(description='Enumerate F5 BIG-IP Load Balancer')
 	parser.add_argument('-e', action='store_true', help='Enumerate IPs using empty requests', dest='empty')
 	parser.add_argument('-n', help='Enumerate IPs using a specific CIDR range', metavar='CIDR', dest='network')
-	parser.add_argument('-a', help='User-Agent header (Default: BigF5Enum)', default='BigF5Enum', dest='agent')
+	parser.add_argument('-a', help='User-Agent header (Default: F5BigIPEnum)', default='F5BigIPEnum', dest='agent')
 	parser.add_argument('-p', help='Port to enumerate (Default: Gathered from initial request)', dest='port')
 	parser.add_argument('host', help='Target host to enumerate')
 	args = parser.parse_args()
 
+	if('http' not in args.host and '://' not in args.host):
+		exit("Error: Incorrect target host format. Make sure to include http:// or https://")
+
 	if(args.empty and args.network):
-		print "Error: You cannot perform empty and network enumeration at the same time!"
 		parser.print_help()
-		exit(1)
+		exit("Error: You cannot perform empty and network enumeration at the same time!")
 
 	if(not args.empty and not args.network):
-		print "Extracting bigF5 cookie info from {}".format(args.host)
-		headers = {'User-Agent': args.agent}
-		resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
-		foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
-		print "Pool Name: {}".format(cookieName[5:])
-		print "Found IP: {}, Port: {}".format(foundIP, foundPort)
-		exit(0)
+		try:
+			print "Extracting F5 BIG-IP cookie info from {}".format(args.host)
+			headers = {'User-Agent': args.agent}
+			resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
+			foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
+			print "Pool Name: {}".format(cookieName[5:])
+			print "Found IP: {}, Port: {}".format(foundIP, foundPort)
+			exit(0)
+		except requests.exceptions.RequestException as e:
+			exit("Error: {}".format(e))
 
 	if(args.empty):
 		try:
@@ -57,8 +62,10 @@ def main():
 					foundIPArray.append(foundIPPort)
 					print "Found IP: {}, Port: {}".format(foundIP, foundPort)
 		except KeyboardInterrupt:
-			print "\nBigF5Enum Exiting..."
+			print "\nF5BigIPEnum Exiting..."
 			exit(0)
+		except requests.exceptions.RequestException as e:
+			exit("Error: {}".format(e))
 
 	if(args.network):
 		print "Using network enumeration. Press ^C to quit\n"
@@ -68,19 +75,20 @@ def main():
 			try:
 				enumNetworkCIDR = ipaddress.ip_network(unicode(args.network), strict=False)
 			except:
-				print "Invalid network address!"
-				exit(1)
-
-			headers = {'User-Agent': args.agent}
-			resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
-			foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
-			reqPort = (args.port if args.port else foundPort)
-			print "Pool Name: {}".format(cookieName[5:])
-			for addr in enumNetworkCIDR:
-				headers = {'User-Agent': args.agent, 'Cookie': cookieName + "=" + encCookie(str(addr), reqPort)}
+				exit("Invalid network address!")
+			try:
+				headers = {'User-Agent': args.agent}
 				resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
-				if(cookieName not in resp.cookies):
-					print "Found IP: {}, Port: {}".format(str(addr), reqPort)
+				foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
+				reqPort = (args.port if args.port else foundPort)
+				print "Pool Name: {}".format(cookieName[5:])
+				for addr in enumNetworkCIDR:
+					headers = {'User-Agent': args.agent, 'Cookie': cookieName + "=" + encCookie(str(addr), reqPort)}
+					resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
+					if(cookieName not in resp.cookies):
+						print "Found IP: {}, Port: {}".format(str(addr), reqPort)
+			except requests.exceptions.RequestException as e:
+				exit("Error: {}".format(e))
 
 		if('-' in args.network):
 			try:
@@ -93,24 +101,27 @@ def main():
 				enumNetEnd = ipaddress.ip_address(unicode(networkEnd))
 				enumNetwork = ipaddress.summarize_address_range(enumNetStart, enumNetEnd)
 			except:
-				print 'Invalid network address!'
-				exit(1)
-
-			headers = {'User-Agent': args.agent}
-			resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
-			foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
-			reqPort = (args.port if args.port else foundPort)
-			print "Pool Name: {}".format(cookieName[5:])
-			for network in enumNetwork:
-				for addr in network:
-					headers = {'User-Agent': args.agent, 'Cookie': cookieName + "=" + encCookie(str(addr), reqPort)}
-					resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
-					if(cookieName not in resp.cookies):
-						print "Found IP: {}, Port: {}".format(str(addr), reqPort)
+				exit('Invalid network address!')
+			try:
+				headers = {'User-Agent': args.agent}
+				resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
+				foundIP, foundPort, cookieName = decCookie(str(resp.cookies))
+				reqPort = (args.port if args.port else foundPort)
+				print "Pool Name: {}".format(cookieName[5:])
+				for network in enumNetwork:
+					for addr in network:
+						headers = {'User-Agent': args.agent, 'Cookie': cookieName + "=" + encCookie(str(addr), reqPort)}
+						resp = requests.get(args.host, headers=headers, verify=False, allow_redirects=False)
+						if(cookieName not in resp.cookies):
+							print "Found IP: {}, Port: {}".format(str(addr), reqPort)
+			except requests.exceptions.RequestException as e:
+				exit("Error: {}".format(e))
 		
 
 def decCookie(cookies):
 	ipdata = repattern.search(cookies)
+	if(not ipdata):
+		exit("Error: No F5 Big IP cookie in response. Are you sure this is a Big IP load balancer?")
 	encIP = ipdata.group(2)
 	encPort = ipdata.group(3)
 	hexIP = '{0:08x}'.format(int(encIP))
